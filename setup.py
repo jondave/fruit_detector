@@ -20,6 +20,10 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+<<<<<<< HEAD
+=======
+            'fruit_detector = fruit_detector.fruit_detector:main'
+>>>>>>> d1b82ce (Initial commit)
         ],
     },
 )
