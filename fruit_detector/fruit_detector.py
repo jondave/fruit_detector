@@ -3,40 +3,90 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
-# import torch
+import torch
+import os
+from ultralytics import YOLO
+import numpy as np
 
 class FruitDetectorNode(Node):
     def __init__(self):
         super().__init__('fruit_detector_node')
-        # Initialize CvBridge to convert ROS Image to OpenCV Image
         self.bridge = CvBridge()
-        # Create a subscriber to the RGB image topic
         self.image_subscription = self.create_subscription(
             Image,
             '/camera/camera/color/image_raw',
             self.image_callback,
             10
         )
-        # Load your YOLO model (assuming you have a YOLOv5 model)
-        # self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s')  # Load YOLOv5 small model
-        # self.get_logger().info("Fruit Detector Node Initialized!")
+        self.detection_publisher = self.create_publisher(
+            Image,
+            'detected_image',
+            10
+        )
+
+        try:
+            self.model = YOLO('weights.pt')
+            self.model.eval()
+            self.get_logger().info("YOLOv11 (Fast) model loaded successfully!")
+        except Exception as e:
+            self.get_logger().error(f"Error loading YOLOv11 (Fast) model: {e}")
+
+        self.get_logger().info("Fruit Detector Node Initialized!")
 
     def image_callback(self, msg):
-        # Convert ROS Image message to OpenCV Image
+        CLASS_NAMES = ["apple", "banana", "grape", "lemon", "orange", "strawberry"]
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception as e:
             self.get_logger().error(f"Could not convert image: {e}")
             return
 
-        # # Run YOLO model on the image
-        # results = self.model(cv_image)  # Runs the YOLOv5 model on the image
+        rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+        detected_cv_image = cv_image.copy()
 
-        # # Display the results
-        # results.show()  # Displays the image with bounding boxes on detected objects
+        try:
+            results = self.model(rgb_image)
 
-        # # You can also process the results (e.g., publishing, logging, etc.)
-        # self.get_logger().info(f"Detected {len(results.xywh[0])} objects")
+            if results and results[0].boxes:
+                boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
+                confidences = results[0].boxes.conf.cpu().numpy()
+                class_ids = results[0].boxes.cls.cpu().numpy().astype(int)
+
+                print(f"Detected {len(boxes)} objects")
+
+                class_counts = {}
+                for i, (x1, y1, x2, y2) in enumerate(boxes):
+                    conf = confidences[i]
+                    cls_id = class_ids[i]
+
+                    class_name = f"Class {cls_id}"
+                    if 0 <= cls_id < len(CLASS_NAMES):
+                        class_name = CLASS_NAMES[cls_id]
+
+                    label = f"{class_name}: {conf:.2f}"
+                    color = (0, 255, 0)
+                    cv2.rectangle(detected_cv_image, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(detected_cv_image, label, (x1, y1 - 10 if y1 - 10 > 10 else y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                    if class_name in class_counts:
+                        class_counts[class_name] += 1
+                    else:
+                        class_counts[class_name] = 1
+
+                for class_name, count in class_counts.items():
+                    print(f"{class_name}: Detected {count} object(s)")
+
+            else:
+                print("No objects detected.")
+
+            try:
+                detection_msg = self.bridge.cv2_to_imgmsg(detected_cv_image, encoding='bgr8')
+                self.detection_publisher.publish(detection_msg)
+            except Exception as e:
+                self.get_logger().error(f"Could not convert detected image to ROS Image: {e}")
+
+        except Exception as e:
+            self.get_logger().error(f"Error during inference: {e}")
 
 def main(args=None):
     rclpy.init(args=args)
