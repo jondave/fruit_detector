@@ -24,8 +24,13 @@ class FruitDetectorNode(Node):
             10
         )
 
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.get_logger().info(f"Using device: {self.device}")
+
         try:
-            self.model = YOLO('weights.pt')
+            self.model = YOLO('weights/fruit/weights_fruit_v3.pt')
+            # self.model = YOLO('weights/strawberry/weights_strawberry_v2.pt')
+            self.model.to(self.device)
             self.model.eval()
             self.get_logger().info("YOLOv11 (Fast) model loaded successfully!")
         except Exception as e:
@@ -34,7 +39,8 @@ class FruitDetectorNode(Node):
         self.get_logger().info("Fruit Detector Node Initialized!")
 
     def image_callback(self, msg):
-        CLASS_NAMES = ["apple", "banana", "grape", "lemon", "orange", "strawberry"]
+        CLASS_NAMES = ["apple", "banana", "grape", "lemon", "orange", "strawberry"] # when using weights_fruit.pt
+        # CLASS_NAMES = ["strawberry", "other"] # when using weights_strawberry.pt
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception as e:
